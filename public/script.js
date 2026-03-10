@@ -273,7 +273,7 @@
                 : '<div class="post-content" lang="en"><p>Click the button below to translate this post to English.</p></div>';
 
             contentMarkup = `
-                <div class="translation-panels" data-show-english="false" data-auto-translate="${String(canAutoTranslate)}" data-slug="${escapeHtml(post.slug)}" data-original-title="${escapeHtml(post.title)}" data-original-content="${escapeHtml(post.content || '')}">
+                <div class="translation-panels" data-show-english="false" data-auto-translate="${String(canAutoTranslate)}" data-slug="${escapeHtml(post.slug)}">
                     <div class="translation-panel is-active" data-language="hi">
                         <div class="post-content" lang="hi">${hindiContent}</div>
                     </div>
@@ -307,7 +307,7 @@
                 const showingEnglish = panels.dataset.showEnglish === 'true';
 
                 if (!showingEnglish && panels.dataset.autoTranslate === 'true') {
-                    const translated = await ensureEnglishTranslation(panels);
+                    const translated = await ensureEnglishTranslation(panels, post.title, post.content || '');
                     if (!translated) {
                         return;
                     }
@@ -325,7 +325,7 @@
     }
 
 
-    async function ensureEnglishTranslation(panels) {
+    async function ensureEnglishTranslation(panels, originalTitle, originalContent) {
         const slug = panels.dataset.slug;
         const englishPanel = panels.querySelector('[data-language="en"]');
         const button = panels.parentElement.querySelector('.flip-toggle');
@@ -334,9 +334,6 @@
             englishPanel.innerHTML = machineTranslationCache.get(slug);
             return true;
         }
-
-        const originalTitle = panels.dataset.originalTitle || '';
-        const originalContent = panels.dataset.originalContent || '';
 
         button.disabled = true;
         button.textContent = 'Translating...';
