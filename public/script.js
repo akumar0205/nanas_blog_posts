@@ -195,6 +195,7 @@
     let displayedCount = 0;
     let isLoading = false;
     let hasMorePosts = true;
+    const machineTranslationCache = new Map();
 
     // DOM Elements
     const container = document.getElementById('posts-container');
@@ -256,29 +257,28 @@
         article.className = 'post-card';
         article.style.animationDelay = `${(index % POSTS_PER_PAGE) * 0.1}s`;
 
-        const translation = HINDI_TRANSLATIONS[post.slug];
-        const title = escapeHtml(translation ? translation.title : post.title);
+        const manualTranslation = HINDI_TRANSLATIONS[post.slug];
+        const hasManualTranslation = Boolean(manualTranslation);
+        const canAutoTranslate = !hasManualTranslation && containsHindiText(post.title + ' ' + stripHtml(post.content || ''));
+        const title = escapeHtml(hasManualTranslation ? manualTranslation.title : post.title);
         const englishTitle = escapeHtml(post.title);
         const englishContent = post.content || '<p>No content available.</p>';
 
         let contentMarkup = `<div class="post-content">${englishContent}</div>`;
 
-        if (translation) {
-            const hindiContent = createHindiContent(translation.content);
+        if (hasManualTranslation || canAutoTranslate) {
+            const hindiContent = hasManualTranslation ? createHindiContent(manualTranslation.content) : (post.content || '<p>कोई सामग्री उपलब्ध नहीं है।</p>');
+            const englishPanel = hasManualTranslation
+                ? `<h3 class="translation-heading">${englishTitle}</h3><div class="post-content" lang="en">${englishContent}</div>`
+                : '<div class="post-content" lang="en"><p>Click the button below to translate this post to English.</p></div>';
+
             contentMarkup = `
-                <div class="flip-card" data-flipped="false">
-                    <div class="flip-card-inner">
-                        <div class="flip-face flip-front">
-                            <div class="post-content" lang="hi">
-                                ${hindiContent}
-                            </div>
-                        </div>
-                        <div class="flip-face flip-back">
-                            <h3 class="translation-heading">${englishTitle}</h3>
-                            <div class="post-content" lang="en">
-                                ${englishContent}
-                            </div>
-                        </div>
+                <div class="translation-panels" data-show-english="false" data-auto-translate="${String(canAutoTranslate)}" data-slug="${escapeHtml(post.slug)}" data-original-title="${escapeHtml(post.title)}" data-original-content="${escapeHtml(post.content || '')}">
+                    <div class="translation-panel is-active" data-language="hi">
+                        <div class="post-content" lang="hi">${hindiContent}</div>
+                    </div>
+                    <div class="translation-panel" data-language="en">
+                        ${englishPanel}
                     </div>
                 </div>
                 <button class="flip-toggle" type="button" aria-pressed="false">Read in English</button>
@@ -302,17 +302,121 @@
 
         const flipButton = article.querySelector('.flip-toggle');
         if (flipButton) {
-            flipButton.addEventListener('click', () => {
-                const flipCard = article.querySelector('.flip-card');
-                const isFlipped = flipCard.dataset.flipped === 'true';
-                const nextState = !isFlipped;
-                flipCard.dataset.flipped = String(nextState);
+            flipButton.addEventListener('click', async () => {
+                const panels = article.querySelector('.translation-panels');
+                const showingEnglish = panels.dataset.showEnglish === 'true';
+
+                if (!showingEnglish && panels.dataset.autoTranslate === 'true') {
+                    const translated = await ensureEnglishTranslation(panels);
+                    if (!translated) {
+                        return;
+                    }
+                }
+
+                const nextState = !showingEnglish;
+                panels.dataset.showEnglish = String(nextState);
+                setActiveLanguage(panels, nextState ? 'en' : 'hi');
                 flipButton.textContent = nextState ? 'हिंदी में पढ़ें' : 'Read in English';
                 flipButton.setAttribute('aria-pressed', String(nextState));
             });
         }
 
         return article;
+    }
+
+
+    async function ensureEnglishTranslation(panels) {
+        const slug = panels.dataset.slug;
+        const englishPanel = panels.querySelector('[data-language="en"]');
+        const button = panels.parentElement.querySelector('.flip-toggle');
+
+        if (machineTranslationCache.has(slug)) {
+            englishPanel.innerHTML = machineTranslationCache.get(slug);
+            return true;
+        }
+
+        const originalTitle = panels.dataset.originalTitle || '';
+        const originalContent = panels.dataset.originalContent || '';
+
+        button.disabled = true;
+        button.textContent = 'Translating...';
+
+        try {
+            const translatedTitle = await translateText(originalTitle);
+            const translatedParagraphs = await translateHtmlToParagraphs(originalContent);
+            const englishMarkup = `
+                <h3 class="translation-heading">${escapeHtml(translatedTitle || 'English Translation')}</h3>
+                <div class="post-content" lang="en">${translatedParagraphs}</div>
+            `;
+
+            machineTranslationCache.set(slug, englishMarkup);
+            englishPanel.innerHTML = englishMarkup;
+            return true;
+        } catch (error) {
+            console.error('Translation failed:', error);
+            englishPanel.innerHTML = '<div class="post-content" lang="en"><p>Translation is unavailable right now. Please try again in a moment.</p></div>';
+            return false;
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Read in English';
+        }
+    }
+
+    function setActiveLanguage(panels, language) {
+        const hindiPanel = panels.querySelector('[data-language="hi"]');
+        const englishPanel = panels.querySelector('[data-language="en"]');
+        hindiPanel.classList.toggle('is-active', language === 'hi');
+        englishPanel.classList.toggle('is-active', language === 'en');
+    }
+
+    function containsHindiText(text) {
+        return /[ऀ-ॿ]/.test(text || '');
+    }
+
+    function stripHtml(html) {
+        const div = document.createElement('div');
+        div.innerHTML = html || '';
+        return div.textContent || div.innerText || '';
+    }
+
+    async function translateHtmlToParagraphs(html) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(`<div>${html || ''}</div>`, 'text/html');
+        const paragraphNodes = doc.querySelectorAll('p');
+        const paragraphTexts = paragraphNodes.length
+            ? Array.from(paragraphNodes).map((node) => node.textContent.trim()).filter(Boolean)
+            : stripHtml(html).split('\n').map(line => line.trim()).filter(Boolean);
+
+        if (!paragraphTexts.length) {
+            return '<p>No content available.</p>';
+        }
+
+        const translated = [];
+        for (const paragraph of paragraphTexts) {
+            translated.push(await translateText(paragraph));
+        }
+
+        return translated.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join('');
+    }
+
+    async function translateText(text) {
+        if (!text || !text.trim()) {
+            return '';
+        }
+
+        const endpoint = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=hi|en`;
+        const response = await fetch(endpoint);
+        if (!response.ok) {
+            throw new Error('Translation service unavailable');
+        }
+
+        const data = await response.json();
+        const translatedText = data?.responseData?.translatedText;
+        if (!translatedText) {
+            throw new Error('No translation returned');
+        }
+
+        return translatedText;
     }
 
     function createHindiContent(paragraphs) {
