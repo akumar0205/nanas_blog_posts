@@ -448,3 +448,55 @@ body {
         border: 1px solid #ccc;
     }
 }
+
+.flip-card {
+    perspective: 1200px;
+}
+
+.flip-card-inner {
+    position: relative;
+    width: 100%;
+    transform-style: preserve-3d;
+    transition: transform 0.6s ease;
+}
+
+.flip-card[data-flipped="true"] .flip-card-inner {
+    transform: rotateY(180deg);
+}
+
+.flip-face {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+}
+
+.flip-back {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    transform: rotateY(180deg);
+}
+
+.flip-toggle {
+    margin-top: 1rem;
+    padding: 0.45rem 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.flip-toggle:hover {
+    border-color: #4a4a4a;
+    color: #ffffff;
+}
+
+.translation-heading {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-muted);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
