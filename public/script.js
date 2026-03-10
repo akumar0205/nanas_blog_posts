@@ -83,15 +83,17 @@
 
         let contentMarkup = `<div class="post-content">${englishContent}</div>`;
 
-        if (canAutoTranslate) {
+        const hasPreTranslatedEnglish = Boolean(post.english_title || post.english_content);
+
+        if (canAutoTranslate || hasPreTranslatedEnglish) {
             const hindiContent = post.content || '<p>कोई सामग्री उपलब्ध नहीं है।</p>';
             contentMarkup = `
-                <div class="translation-panels" data-show-english="false" data-auto-translate="true" data-slug="${escapeHtml(post.slug)}">
+                <div class="translation-panels" data-show-english="false" data-auto-translate="${String(canAutoTranslate)}" data-has-pretranslated="${String(hasPreTranslatedEnglish)}" data-slug="${escapeHtml(post.slug)}">
                     <div class="translation-panel is-active" data-language="hi">
                         <div class="post-content" lang="hi">${hindiContent}</div>
                     </div>
                     <div class="translation-panel" data-language="en">
-                        <div class="post-content" lang="en"><p>Click the button below to translate this post to English.</p></div>
+                        <div class="post-content" lang="en"><p>${hasPreTranslatedEnglish ? 'Click below to read the saved English translation.' : 'Click the button below to translate this post to English.'}</p></div>
                     </div>
                 </div>
                 <button class="flip-toggle" type="button" aria-pressed="false">Read in English</button>
@@ -120,7 +122,7 @@
                 const showingEnglish = panels.dataset.showEnglish === 'true';
 
                 if (!showingEnglish && panels.dataset.autoTranslate === 'true') {
-                    const translated = await ensureEnglishTranslation(panels, post.title, post.content || '');
+                    const translated = await ensureEnglishTranslation(panels, post);
                     if (!translated) {
                         return;
                     }
@@ -138,13 +140,21 @@
     }
 
 
-    async function ensureEnglishTranslation(panels, originalTitle, originalContent) {
+    async function ensureEnglishTranslation(panels, post) {
         const slug = panels.dataset.slug;
         const englishPanel = panels.querySelector('[data-language="en"]');
         const button = panels.parentElement.querySelector('.flip-toggle');
+        const hasPreTranslated = panels.dataset.hasPretranslated === 'true';
 
         if (machineTranslationCache.has(slug)) {
             englishPanel.innerHTML = machineTranslationCache.get(slug);
+            return true;
+        }
+
+        if (hasPreTranslated) {
+            const englishMarkup = buildEnglishMarkup(post.english_title, post.english_content);
+            machineTranslationCache.set(slug, englishMarkup);
+            englishPanel.innerHTML = englishMarkup;
             return true;
         }
 
@@ -152,12 +162,9 @@
         button.textContent = 'Translating...';
 
         try {
-            const translatedTitle = await translateText(originalTitle);
-            const translatedParagraphs = await translateHtmlToParagraphs(originalContent);
-            const englishMarkup = `
-                <h3 class="translation-heading">${escapeHtml(translatedTitle || 'English Translation')}</h3>
-                <div class="post-content" lang="en">${translatedParagraphs}</div>
-            `;
+            const translatedTitle = await translateText(post.title);
+            const translatedParagraphs = await translateHtmlToParagraphs(post.content || '');
+            const englishMarkup = buildEnglishMarkup(translatedTitle || 'English Translation', translatedParagraphs);
 
             machineTranslationCache.set(slug, englishMarkup);
             englishPanel.innerHTML = englishMarkup;
@@ -170,6 +177,13 @@
             button.disabled = false;
             button.textContent = 'Read in English';
         }
+    }
+
+    function buildEnglishMarkup(title, contentHtml) {
+        return `
+            <h3 class="translation-heading">${escapeHtml(title || 'English Translation')}</h3>
+            <div class="post-content" lang="en">${contentHtml || '<p>No content available.</p>'}</div>
+        `;
     }
 
     function setActiveLanguage(panels, language) {
